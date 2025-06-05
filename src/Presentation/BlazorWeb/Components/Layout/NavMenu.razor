@@ -1,0 +1,131 @@
+﻿@using Microsoft.AspNetCore.Components.Routing
+
+<nav class="horizontal-nav">
+    <div class="nav-items">
+        <NavLink class="nav-item" href="/" Match="NavLinkMatch.All">
+            <span class="nav-icon">🏠</span>
+            <span class="nav-text">首頁</span>
+        </NavLink>
+        
+        <NavLink class="nav-item" href="/database">
+            <span class="nav-icon">🗄️</span>
+            <span class="nav-text">資料庫</span>
+        </NavLink>
+        
+        <NavLink class="nav-item" href="/query-history">
+            <span class="nav-icon">📋</span>
+            <span class="nav-text">查詢歷史</span>
+        </NavLink>
+    </div>
+</nav>
+
+<style>
+    .horizontal-nav {
+        display: flex;
+        align-items: center;
+        height: 100%;
+    }
+
+    .nav-items {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        height: 100%;
+    }
+
+    .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        text-decoration: none;
+        color: var(--text-secondary);
+        font-weight: 500;
+        font-size: 0.875rem;
+        transition: var(--transition-fast);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .nav-item::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: var(--transition-normal);
+    }
+
+    .nav-item:hover::before {
+        left: 100%;
+    }
+
+    .nav-item:hover {
+        color: var(--text-primary);
+        background: var(--bg-tertiary);
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-sm);
+    }
+
+    .nav-item.active {
+        color: var(--accent-primary);
+        background: rgba(13, 110, 253, 0.1);
+        font-weight: 600;
+    }
+
+    .nav-item.active::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: var(--accent-primary);
+        animation: slideIn 0.3s ease-out;
+    }
+
+    @@keyframes slideIn {
+        from {
+            transform: scaleX(0);
+        }
+        to {
+            transform: scaleX(1);
+        }
+    }
+
+    .nav-icon {
+        font-size: 1rem;
+        transition: var(--transition-fast);
+    }
+
+    .nav-item:hover .nav-icon {
+        transform: scale(1.2);
+    }
+
+    .nav-text {
+        transition: var(--transition-fast);
+    }
+
+    /* 響應式設計 */
+    @@media (max-width: 768px) {
+        .nav-text {
+            display: none;
+        }
+
+        .nav-item {
+            padding: 0.5rem;
+            min-width: 40px;
+            justify-content: center;
+        }
+    }
+
+    @@media (max-width: 480px) {
+        .nav-items {
+            gap: 0.25rem;
+        }
+    }
+</style>
+

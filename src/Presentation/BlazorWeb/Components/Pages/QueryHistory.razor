@@ -1,0 +1,319 @@
+@page "/query-history"
+@rendermode InteractiveServer
+@using Domain.Configuration.Entities
+@inject AppSettings AppSettings
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>查詢歷史 - DbViewer</PageTitle>
+
+<div class="history-container">
+    <div class="history-header">
+        <h2>📋 查詢歷史</h2>
+        <div class="history-actions">
+            <button type="button" class="btn btn-outline-danger" @onclick="ClearHistory">
+                🗑️ 清除歷史
+            </button>
+            <button type="button" class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/database")'>
+                ↩️ 返回資料庫
+            </button>
+        </div>
+    </div>
+
+    <div class="history-content">
+        @if (queryHistory.Any())
+        {
+            <div class="history-list">
+                @foreach (var (query, index) in queryHistory.Select((q, i) => (q, i)))
+                {
+                    <div class="history-item">
+                        <div class="history-item-header">
+                            <span class="history-index">#@(queryHistory.Count - index)</span>
+                            <span class="history-time">@query.ExecutedAt.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                            <div class="history-item-actions">
+                                <button type="button" class="btn btn-xs btn-outline-primary" 
+                                        @onclick="() => CopyToClipboard(query.SqlText)">
+                                    📋 複製
+                                </button>
+                                <button type="button" class="btn btn-xs btn-outline-success" 
+                                        @onclick="() => ExecuteQuery(query.SqlText)">
+                                    ▶️ 執行
+                                </button>
+                                <button type="button" class="btn btn-xs btn-outline-danger" 
+                                        @onclick="() => RemoveQuery(query)">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                        <div class="history-item-content">
+                            <div class="sql-text">
+                                <pre>@query.SqlText</pre>
+                            </div>
+                            @if (!string.IsNullOrEmpty(query.Database))
+                            {
+                                <div class="query-database">
+                                    <strong>資料庫:</strong> @query.Database
+                                </div>
+                            }
+                            @if (query.AffectedRows.HasValue)
+                            {
+                                <div class="query-result">
+                                    <strong>影響行數:</strong> @query.AffectedRows.Value
+                                </div>
+                            }
+                            @if (!string.IsNullOrEmpty(query.ErrorMessage))
+                            {
+                                <div class="query-error">
+                                    <strong>錯誤:</strong> @query.ErrorMessage
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="no-history">
+                <h3>📝 尚無查詢歷史</h3>
+                <p>執行 SQL 查詢後，歷史記錄將會顯示在這裡</p>
+                <button type="button" class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/database")'>
+                    開始查詢
+                </button>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .history-container {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background-color: #f8f9fa;
+        padding: 20px;
+    }
+
+    .history-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .history-header h2 {
+        margin: 0;
+        color: #333;
+        font-size: 24px;
+        font-weight: 600;
+    }
+
+    .history-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    .history-content {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .history-item {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        overflow: hidden;
+    }
+
+    .history-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 15px 20px;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .history-index {
+        font-weight: 600;
+        color: #007bff;
+    }
+
+    .history-time {
+        color: #6c757d;
+        font-size: 14px;
+    }
+
+    .history-item-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    .history-item-content {
+        padding: 20px;
+    }
+
+    .sql-text {
+        margin-bottom: 15px;
+    }
+
+    .sql-text pre {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    .query-database, .query-result, .query-error {
+        margin-bottom: 8px;
+        font-size: 14px;
+    }
+
+    .query-error {
+        color: #dc3545;
+    }
+
+    .no-history {
+        text-align: center;
+        padding: 60px 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .no-history h3 {
+        color: #6c757d;
+        margin-bottom: 15px;
+    }
+
+    .no-history p {
+        color: #adb5bd;
+        margin-bottom: 25px;
+    }
+
+    /* 按鈕樣式 */
+    .btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s ease;
+        text-decoration: none;
+    }
+
+    .btn-xs {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+
+    .btn-primary {
+        background-color: #007bff;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background-color: #0056b3;
+    }
+
+    .btn-outline-primary {
+        background-color: transparent;
+        color: #007bff;
+        border: 1px solid #007bff;
+    }
+
+    .btn-outline-primary:hover {
+        background-color: #007bff;
+        color: white;
+    }
+
+    .btn-outline-success {
+        background-color: transparent;
+        color: #28a745;
+        border: 1px solid #28a745;
+    }
+
+    .btn-outline-success:hover {
+        background-color: #28a745;
+        color: white;
+    }
+
+    .btn-outline-danger {
+        background-color: transparent;
+        color: #dc3545;
+        border: 1px solid #dc3545;
+    }
+
+    .btn-outline-danger:hover {
+        background-color: #dc3545;
+        color: white;
+    }
+</style>
+
+@code {
+    private List<QueryHistoryItem> queryHistory = new();
+
+    protected override void OnInitialized()
+    {
+        LoadQueryHistory();
+    }
+
+    private void LoadQueryHistory()
+    {
+        queryHistory = AppSettings.QueryHistory;
+    }
+
+    private async Task CopyToClipboard(string text)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+        }
+        catch
+        {
+            // 如果剪貼簿 API 不可用，可以顯示提示
+        }
+    }
+
+    private void ExecuteQuery(string sqlText)
+    {
+        // 導航到資料庫頁面並設定查詢文字
+        Navigation.NavigateTo($"/database?query={Uri.EscapeDataString(sqlText)}");
+    }
+
+    private void RemoveQuery(QueryHistoryItem query)
+    {
+        AppSettings.RemoveQueryHistory(query);
+        AppSettings.Save();
+        LoadQueryHistory();
+        StateHasChanged();
+    }
+
+    private void ClearHistory()
+    {
+        AppSettings.ClearQueryHistory();
+        AppSettings.Save();
+        LoadQueryHistory();
+        StateHasChanged();
+    }
+} 

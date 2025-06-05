@@ -1,0 +1,2289 @@
+@page "/database"
+@rendermode InteractiveServer
+@using Presentation.BlazorWeb.ViewModels
+@using Presentation.BlazorWeb.Services
+@using Domain.Database.Entities
+@using System.Text.Json
+@using Microsoft.JSInterop
+@using System.Data
+@inject DatabaseViewModel ViewModel
+@inject NavigationManager Navigation
+@inject IToastService ToastService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>資料庫管理 - DbViewer</PageTitle>
+
+@if (ViewModel != null)
+{
+    <div class="database-container">
+        <!-- 連線狀態列 -->
+        <div class="connection-status-bar">
+            <div class="status-info">
+                @if (ViewModel.IsConnected)
+                {
+                    <div class="status-connected">
+                        <i class="status-icon">🟢</i>
+                        <span>已連線至 @ViewModel.Server</span>
+                        @if (!string.IsNullOrEmpty(ViewModel.CurrentDatabase))
+                        {
+                            <span class="current-db">- @ViewModel.CurrentDatabase</span>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="status-disconnected">
+                        <i class="status-icon">🔴</i>
+                        <span>未連線</span>
+                    </div>
+                }
+            </div>
+            <div class="status-actions">
+                @if (ViewModel.IsConnected)
+                {
+                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                            @onclick="() => ViewModel.DisconnectAsync()"
+                            disabled="@ViewModel.IsBusy">
+                        中斷連線
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" 
+                            @onclick="ToggleConnectionPanel">
+                        @(showConnectionPanel ? "隱藏" : "顯示")連線設定
+                    </button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-sm btn-primary" 
+                            @onclick="ToggleConnectionPanel">
+                        @(showConnectionPanel ? "隱藏" : "顯示")連線設定
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- 連線設定區域 (可摺疊) -->
+        @if (showConnectionPanel || !ViewModel.IsConnected)
+        {
+            <div class="connection-panel @(ViewModel.IsConnected ? "collapsed" : "")">
+                <div class="panel-header">
+                    <h3>資料庫連線設定</h3>
+                </div>
+
+                <div class="connection-tabs">
+                    <button type="button" class="tab-button @(activeTab == "manual" ? "active" : "")" 
+                            @onclick='() => SetActiveTab("manual")'>
+                        手動設定
+                    </button>
+                    <button type="button" class="tab-button @(activeTab == "saved" ? "active" : "")" 
+                            @onclick='() => SetActiveTab("saved")'>
+                        已儲存連線
+                    </button>
+                </div>
+
+                @if (activeTab == "manual")
+                {
+                    <div class="connection-form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>連線名稱</label>
+                                <input type="text" @bind="ViewModel.ConnectionName" @bind:event="oninput" 
+                                       class="form-control" placeholder="選填，用於儲存連線" disabled="@ViewModel.IsBusy" />
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <input type="checkbox" @bind="ViewModel.SavePassword" disabled="@ViewModel.IsBusy" />
+                                    儲存密碼
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>伺服器</label>
+                                <input type="text" @bind="ViewModel.Server" @bind:event="oninput" 
+                                       class="form-control" placeholder="localhost" disabled="@ViewModel.IsBusy" />
+                            </div>
+                            <div class="form-group">
+                                <label>連接埠</label>
+                                <input type="number" @bind="ViewModel.Port" 
+                                       class="form-control" disabled="@ViewModel.IsBusy" />
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>使用者名稱</label>
+                                <input type="text" @bind="ViewModel.Username" @bind:event="oninput" 
+                                       class="form-control" disabled="@ViewModel.IsBusy" />
+                            </div>
+                            <div class="form-group">
+                                <label>密碼</label>
+                                <input type="password" @bind="ViewModel.Password" @bind:event="oninput" 
+                                       class="form-control" disabled="@ViewModel.IsBusy" />
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>資料庫</label>
+                                <input type="text" @bind="ViewModel.SelectedDatabase" @bind:event="oninput" 
+                                       class="form-control" placeholder="選填，連線後可切換" disabled="@ViewModel.IsBusy" />
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="btn btn-primary" 
+                                    @onclick="() => ViewModel.ConnectAsync()"
+                                    disabled="@(!ViewModel.CanConnect)">
+                                @if (ViewModel.IsBusy)
+                                {
+                                    <span class="spinner"></span>
+                                }
+                                連線
+                            </button>
+
+                            <button type="button" class="btn btn-secondary" 
+                                    @onclick="() => ViewModel.TestConnectionAsync()"
+                                    disabled="@(!ViewModel.CanTestConnection)">
+                                測試連線
+                            </button>
+
+                            @if (!string.IsNullOrWhiteSpace(ViewModel.ConnectionName))
+                            {
+                                <button type="button" class="btn btn-success" 
+                                        @onclick="() => ViewModel.SaveCurrentConnection()"
+                                        disabled="@ViewModel.IsBusy">
+                                    💾 儲存連線
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+                else if (activeTab == "saved")
+                {
+                    <div class="saved-connections">
+                        @if (ViewModel.SavedConnections.Any())
+                        {
+                            <div class="connections-list">
+                                @foreach (var connection in ViewModel.SavedConnections.OrderByDescending(c => c.LastUsed))
+                                {
+                                    <div class="connection-item">
+                                        <div class="connection-info" @onclick="() => ViewModel.LoadConnection(connection)">
+                                            <div class="connection-name">@connection.DisplayName</div>
+                                            <div class="connection-details">
+                                                @connection.Username@@@connection.Host:@connection.Port
+                                                @if (!string.IsNullOrEmpty(connection.DefaultDatabase))
+                                                {
+                                                    <span> / @connection.DefaultDatabase</span>
+                                                }
+                                            </div>
+                                            <div class="connection-time">最後使用: @connection.LastUsed.ToString("yyyy-MM-dd HH:mm")</div>
+                                        </div>
+                                        <button type="button" class="btn btn-xs btn-outline-danger" 
+                                                @onclick="() => ViewModel.DeleteConnection(connection)"
+                                                @onclick:stopPropagation="true">
+                                            🗑️
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="no-connections">
+                                <p>尚無已儲存的連線</p>
+                                <p>請在手動設定頁面輸入連線名稱並儲存連線</p>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(ViewModel.ErrorMessage))
+                {
+                    <div class="alert alert-danger">
+                        @ViewModel.ErrorMessage
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- 主要工作區域 -->
+        @if (ViewModel.IsConnected)
+        {
+            <div class="main-workspace">
+                <!-- 左側邊欄 -->
+                <div class="sidebar @(sidebarCollapsed ? "collapsed" : "")">
+                    <div class="sidebar-header">
+                        <h3>@(sidebarCollapsed ? "" : "資料瀏覽器")</h3>
+                        <button type="button" class="btn btn-xs btn-outline-secondary sidebar-toggle" 
+                                @onclick="() => sidebarCollapsed = !sidebarCollapsed"
+                                title="@(sidebarCollapsed ? "展開側邊欄" : "收合側邊欄")">
+                            @(sidebarCollapsed ? "▶️" : "◀️")
+                        </button>
+                    </div>
+
+                    @if (!sidebarCollapsed)
+                    {
+                        <!-- 資料庫清單 -->
+                        <div class="sidebar-section">
+                            <div class="section-header">
+                                <h4>資料庫</h4>
+                                <div class="section-actions">
+                                    <button type="button" class="btn btn-xs btn-outline-primary" 
+                                            @onclick="() => ViewModel.LoadDatabasesAsync()"
+                                            disabled="@ViewModel.IsBusy">
+                                        🔄
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary" 
+                                            @onclick="() => databaseSectionCollapsed = !databaseSectionCollapsed"
+                                            title="@(databaseSectionCollapsed ? "展開" : "收合")">
+                                        @(databaseSectionCollapsed ? "▼" : "▲")
+                                    </button>
+                                </div>
+                            </div>
+                            @if (!databaseSectionCollapsed)
+                            {
+                                <div class="search-box">
+                                    <input type="text" @bind="databaseSearchText" @bind:event="oninput" 
+                                           class="search-input" placeholder="搜尋資料庫 (支援 * 萬用字元)" />
+                                </div>
+                                <div class="database-list">
+                                    @foreach (var db in GetFilteredDatabases())
+                                    {
+                                        <div class="database-item @(db.Name == ViewModel.CurrentDatabase ? "active" : "")"
+                                             @onclick="() => ViewModel.SwitchDatabaseAsync(db.Name)">
+                                            <span class="db-icon">🗄️</span>
+                                            <span class="db-name">@db.Name</span>
+                                            @if (db.Name == ViewModel.CurrentDatabase)
+                                            {
+                                                <span class="current-indicator">●</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- 資料表清單 -->
+                        <div class="sidebar-section">
+                            <div class="section-header">
+                                <h4>資料表</h4>
+                                <div class="section-actions">
+                                    <button type="button" class="btn btn-xs btn-outline-primary" 
+                                            @onclick="() => ViewModel.LoadTablesAsync()"
+                                            disabled="@ViewModel.IsBusy">
+                                        🔄
+                                    </button>
+                                    <button type="button" class="btn btn-xs btn-outline-secondary" 
+                                            @onclick="() => tableSectionCollapsed = !tableSectionCollapsed"
+                                            title="@(tableSectionCollapsed ? "展開" : "收合")">
+                                        @(tableSectionCollapsed ? "▼" : "▲")
+                                    </button>
+                                </div>
+                            </div>
+                            @if (!tableSectionCollapsed)
+                            {
+                                <div class="search-box">
+                                    <input type="text" @bind="tableSearchText" @bind:event="oninput" 
+                                           class="search-input" placeholder="搜尋資料表 (支援 * 萬用字元)" />
+                                </div>
+                                <div class="tables-list">
+                                    @foreach (var table in GetFilteredTables())
+                                    {
+                                        <div class="table-item" @onclick="() => SetSelectQuery(table)">
+                                            <span class="table-icon">📋</span>
+                                            <span class="table-name">@table</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <!-- 主要內容區域 -->
+                <div class="content-area">
+                    <!-- Query Region (w-full) -->
+                    <div class="query-region">
+                        <!-- SQL 查詢區域 -->
+                        <div class="query-section">
+                            <div class="query-header">
+                                <h3>SQL 查詢編輯器</h3>
+                                <div class="query-actions">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" 
+                                            @onclick='() => Navigation.NavigateTo("/query-history")'>
+                                        📋 查詢歷史
+                                    </button>
+                                    <button type="button" class="btn btn-secondary btn-sm" 
+                                            @onclick="() => ViewModel.ClearQueryResults()"
+                                            disabled="@(ViewModel.QueryResult == null && ViewModel.AffectedRows == 0)">
+                                        🗑️ 清除結果
+                                    </button>
+                                    <button type="button" class="btn btn-primary" 
+                                            @onclick="() => ViewModel.ExecuteQueryAsync()"
+                                            disabled="@(!ViewModel.CanExecuteQuery)">
+                                        @if (ViewModel.IsBusy)
+                                        {
+                                            <span class="spinner"></span>
+                                        }
+                                        ▶️ 執行查詢
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="query-editor">
+                                <textarea @bind="ViewModel.SqlQuery" @bind:event="oninput" 
+                                          class="sql-textarea" 
+                                          placeholder="輸入 SQL 查詢語句...&#10;例如: SELECT * FROM table_name LIMIT 10&#10;&#10;💡 提示：使用 Ctrl+Enter 快速執行查詢"
+                                          disabled="@ViewModel.IsBusy"
+                                          @onkeydown="HandleKeyDown"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Region (overflow) -->
+                    <div class="data-region">
+                        <!-- 查詢結果區域 -->
+                        @if (ViewModel.QueryResult != null || ViewModel.AffectedRows > 0)
+                        {
+                            <div class="results-section">
+                                @if (ViewModel.QueryResult != null)
+                                {
+                                    <div class="results-header">
+                                        <h4>📊 查詢結果</h4>
+                                        <div class="results-actions">
+                                            <div class="pagination-info">
+                                                <span>@ViewModel.PageInfo</span>
+                                            </div>
+                                            <div class="page-size-selector">
+                                                <label>每頁顯示：</label>
+                                                <select @bind="ViewModel.PageSize" class="page-size-select">
+                                                    <option value="25">25</option>
+                                                    <option value="50">50</option>
+                                                    <option value="100">100</option>
+                                                    <option value="200">200</option>
+                                                </select>
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                    @onclick="ResetColumnOrder">
+                                                🔄 重置欄位順序
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 分頁控制項 -->
+                                    @if (ViewModel.TotalPages > 1)
+                                    {
+                                        <div class="pagination-controls">
+                                            <div class="pagination-buttons">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                        @onclick="() => ViewModel.GoToFirstPage()"
+                                                        disabled="@(!ViewModel.CanGoToPreviousPage)">
+                                                    ⏮️ 首頁
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                        @onclick="() => ViewModel.GoToPreviousPage()"
+                                                        disabled="@(!ViewModel.CanGoToPreviousPage)">
+                                                    ◀️ 上一頁
+                                                </button>
+                                                
+                                                <!-- 頁碼選擇器 -->
+                                                <div class="page-numbers">
+                                                    @for (int i = Math.Max(1, ViewModel.CurrentPage - 2); i <= Math.Min(ViewModel.TotalPages, ViewModel.CurrentPage + 2); i++)
+                                                    {
+                                                        var pageNum = i;
+                                                        <button type="button" 
+                                                                class="btn btn-sm @(pageNum == ViewModel.CurrentPage ? "btn-primary" : "btn-outline-secondary")" 
+                                                                @onclick="() => ViewModel.GoToPage(pageNum)">
+                                                            @pageNum
+                                                        </button>
+                                                    }
+                                                </div>
+                                                
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                        @onclick="() => ViewModel.GoToNextPage()"
+                                                        disabled="@(!ViewModel.CanGoToNextPage)">
+                                                    下一頁 ▶️
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" 
+                                                        @onclick="() => ViewModel.GoToLastPage()"
+                                                        disabled="@(!ViewModel.CanGoToNextPage)">
+                                                    末頁 ⏭️
+                                                </button>
+                                            </div>
+                                            
+                                            <!-- 快速跳頁 -->
+                                            <div class="quick-jump">
+                                                <label>跳至第</label>
+                                                <input type="number" 
+                                                       class="page-input" 
+                                                       min="1" 
+                                                       max="@ViewModel.TotalPages" 
+                                                       @bind="jumpToPage"
+                                                       @onkeypress="@(async (KeyboardEventArgs e) => { if (e.Key == "Enter") HandlePageJump(); })"
+                                                       placeholder="頁碼" />
+                                                <label>頁</label>
+                                            </div>
+                                        </div>
+                                    }
+                                    
+                                    <div class="results-table-container">
+                                        <table class="results-table">
+                                            <thead>
+                                                <tr>
+                                                    @if (ViewModel?.QueryResult != null && sortedColumns.Any() && ValidateColumns())
+                                                    {
+                                                        @foreach (var columnInfo in sortedColumns)
+                                                        {
+                                                            <th class="sortable-header @(columnInfo.SortDirection != SortDirection.None ? "sorted" : "")"
+                                                                @onclick="() => ToggleSort(columnInfo.Column.ColumnName)"
+                                                                draggable="true"
+                                                                @ondragstart="@((DragEventArgs e) => OnDragStart(e, columnInfo.Column.ColumnName))"
+                                                                @ondrop="@((DragEventArgs e) => OnDrop(e, columnInfo.Column.ColumnName))"
+                                                                @ondragover="@((DragEventArgs e) => OnDragOver(e))"
+                                                                @ondragover:preventDefault="true"
+                                                                @ondragenter="@((DragEventArgs e) => OnDragEnter(e))"
+                                                                @ondragleave="@((DragEventArgs e) => OnDragLeave(e))">
+                                                                <div class="header-content">
+                                                                    <span class="column-name">@columnInfo.Column.ColumnName</span>
+                                                                    @if (columnInfo.SortDirection == SortDirection.Ascending)
+                                                                    {
+                                                                        <span class="sort-indicator">▲</span>
+                                                                    }
+                                                                    else if (columnInfo.SortDirection == SortDirection.Descending)
+                                                                    {
+                                                                        <span class="sort-indicator">▼</span>
+                                                                    }
+                                                                    <span class="drag-handle">⋮⋮</span>
+                                                                </div>
+                                                            </th>
+                                                        }
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @if (ViewModel?.QueryResult != null && sortedColumns.Any() && ValidateColumns())
+                                                {
+                                                    @foreach (System.Data.DataRow row in GetSortedRows())
+                                                    {
+                                                        <tr>
+                                                            @foreach (var columnInfo in sortedColumns)
+                                                            {
+                                                                <td title="@(GetSafeCellValue(row, columnInfo.Column.ColumnName))"
+                                                                    @onclick="() => ShowCellValue(GetSafeCellValue(row, columnInfo.Column.ColumnName), columnInfo.Column.ColumnName)"
+                                                                    style="cursor: pointer;">
+                                                                    @(GetDisplayValue(GetSafeCellValue(row, columnInfo.Column.ColumnName)))
+                                                                </td>
+                                                            }
+                                                        </tr>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <tr>
+                                                        <td colspan="100%" style="text-align: center; padding: 20px; color: var(--text-secondary);">
+                                                            載入中或無資料...
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                                else if (ViewModel.AffectedRows > 0)
+                                {
+                                    <div class="results-header">
+                                        <h4>✅ 執行成功：影響 @ViewModel.AffectedRows 筆記錄</h4>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else if (!string.IsNullOrEmpty(ViewModel.ErrorMessage))
+                        {
+                            <div class="error-section">
+                                <div class="error-header">
+                                    <h4>❌ 查詢錯誤</h4>
+                                </div>
+                                <div class="error-content">
+                                    <pre>@ViewModel.ErrorMessage</pre>
+                                </div>
+                            </div>
+                        }
+                        else if (ViewModel.IsBusy)
+                        {
+                            <div class="loading-section">
+                                <div class="loading-content">
+                                    <div class="spinner-large"></div>
+                                    <h4>執行查詢中...</h4>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="welcome-section">
+                                <div class="welcome-content">
+                                    <h3>🚀 準備開始查詢</h3>
+                                    <p>在上方輸入 SQL 查詢語句，或點擊左側資料表來快速生成查詢</p>
+                                    <div class="quick-tips">
+                                        <h5>💡 快速提示：</h5>
+                                        <ul>
+                                            <li>點擊資料表名稱自動生成 SELECT 查詢</li>
+                                            <li>使用 Ctrl+Enter 快速執行查詢</li>
+                                            <li>拖拽表頭可重新排列欄位</li>
+                                            <li>點擊表頭可排序資料</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Cell Value Modal -->
+    @if (showCellModal)
+    {
+        <div class="modal-overlay" @onclick="CloseCellModal">
+            <div class="modal-dialog" @onclick:stopPropagation="true">
+                <div class="modal-header">
+                    <h5 class="modal-title">Cell 內容 - @selectedColumnName</h5>
+                    <button type="button" class="close-btn" @onclick="CloseCellModal" title="關閉">&times;</button>
+                </div>
+                <div class="modal-body">
+                    @if (isJsonContent)
+                    {
+                        <div class="json-controls">
+                            <button type="button" class="btn btn-sm btn-outline-primary" @onclick="ToggleJsonFormat">
+                                @(showFormattedJson ? "顯示原始內容" : "顯示格式化 JSON")
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyToClipboard">
+                                📋 複製
+                            </button>
+                        </div>
+                        @if (showFormattedJson)
+                        {
+                            <pre class="json-content formatted"><code>@formattedJsonContent</code></pre>
+                        }
+                        else
+                        {
+                            <pre class="json-content raw"><code>@selectedCellValue</code></pre>
+                        }
+                    }
+                    else
+                    {
+                        <div class="text-controls">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyToClipboard">
+                                📋 複製
+                            </button>
+                        </div>
+                        <pre class="text-content"><code>@selectedCellValue</code></pre>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <div class="modal-size-info">
+                        💡 提示：拖拽右下角調整大小 | 拖拽標題欄移動 | Esc 關閉
+                    </div>
+                    <button type="button" class="btn btn-secondary" @onclick="CloseCellModal">關閉</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <style>
+        .database-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* 連線狀態列 */
+        .connection-status-bar {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow-sm);
+            transition: var(--transition-normal);
+        }
+
+        .status-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-connected {
+            color: var(--success-color);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-disconnected {
+            color: var(--danger-color);
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-icon {
+            font-size: 12px;
+        }
+
+        .current-db {
+            color: var(--text-secondary);
+            font-weight: normal;
+        }
+
+        .status-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* 連線設定面板 */
+        .connection-panel {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 20px;
+            transition: var(--transition-normal);
+        }
+
+        .connection-panel.collapsed {
+            background-color: var(--bg-tertiary);
+        }
+
+        .panel-header h3 {
+            margin: 0 0 20px 0;
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .connection-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .tab-button.active {
+            background-color: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+        }
+
+        .tab-button:hover:not(.active) {
+            background-color: var(--bg-primary);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .connection-form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group label {
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .form-control {
+            padding: 10px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 0.2rem rgba(0,122,204,0.25);
+            background-color: var(--bg-primary);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        /* 主要工作區域 */
+        .main-workspace {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 左側邊欄 */
+        .sidebar {
+            width: 300px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 2px 0 8px rgba(0,0,0,0.3);
+        }
+
+        .sidebar.collapsed {
+            width: 60px;
+        }
+
+        .sidebar.collapsed .sidebar-header h3 {
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+
+        .sidebar-header {
+            padding: 15px 20px 10px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, #0e639c 0%, #1177bb 100%);
+            color: white;
+            flex-shrink: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+            justify-content: center;
+            padding: 15px 10px 10px;
+        }
+
+        .sidebar-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-toggle {
+            padding: 8px;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-decoration: none;
+            background-color: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .sidebar-toggle:hover {
+            background-color: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        .sidebar-section {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar.collapsed .sidebar-section {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sidebar-section:first-child {
+            flex: 0 0 auto;
+            max-height: 40%;
+        }
+
+        .sidebar-section:last-child {
+            flex: 1;
+            min-height: 0;
+        }
+
+        .section-header {
+            padding: 15px 20px 10px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-tertiary);
+            position: relative;
+        }
+
+        .section-header::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: linear-gradient(135deg, #0e639c 0%, #1177bb 100%);
+        }
+
+        .section-header h4 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .section-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .section-actions .btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .section-actions .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .search-box {
+            padding: 10px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 0.2rem rgba(0,122,204,0.25);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .database-list, .tables-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .database-item, .table-item {
+            padding: 10px 12px;
+            margin-bottom: 4px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .database-item:hover, .table-item:hover {
+            background-color: var(--bg-primary);
+        }
+
+        .database-item.active {
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        .db-icon, .table-icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .db-name, .table-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .current-indicator {
+            color: var(--success-color);
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        /* 主要內容區域 */
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .query-region {
+            flex: 0 0 auto;
+            width: 100%;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .data-region {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .query-section {
+            background: var(--bg-tertiary);
+            padding: 20px;
+        }
+
+        .query-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .query-header h3 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .query-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .query-editor {
+            position: relative;
+        }
+
+        .sql-textarea {
+            width: 100%;
+            height: 150px;
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: vertical;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .sql-textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 0.2rem rgba(0,122,204,0.25);
+        }
+
+        .sql-textarea::placeholder {
+            color: var(--text-secondary);
+        }
+
+        /* 已儲存連線樣式 */
+        .saved-connections {
+            padding: 20px 0;
+        }
+
+        .connections-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .connection-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-tertiary);
+            transition: all 0.2s ease;
+        }
+
+        .connection-item:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 2px 8px rgba(0,122,204,0.15);
+        }
+
+        .connection-info {
+            flex: 1;
+            cursor: pointer;
+        }
+
+        .connection-name {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .connection-details {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-bottom: 2px;
+        }
+
+        .connection-time {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .no-connections {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+
+        .no-connections p {
+            margin: 5px 0;
+        }
+
+        /* 查詢結果區域 */
+        .results-section {
+            flex: 1;
+            background: var(--bg-tertiary);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        .results-header {
+            margin-bottom: 15px;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .results-header h4 {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .results-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .pagination-info {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .page-size-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .page-size-selector label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .page-size-select {
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .page-size-select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        /* 分頁控制項樣式 */
+        .pagination-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 15px;
+            flex-shrink: 0;
+        }
+
+        .pagination-buttons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .page-numbers {
+            display: flex;
+            gap: 4px;
+            margin: 0 8px;
+        }
+
+        .quick-jump {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .quick-jump label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+
+        .page-input {
+            width: 60px;
+            padding: 4px 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .page-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .results-table-container {
+            flex: 1;
+            overflow: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-tertiary);
+            min-height: 200px;
+            max-height: calc(100vh - 400px);
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: max-content;
+        }
+
+        .results-table th {
+            background-color: var(--bg-tertiary);
+            padding: 12px 8px;
+            text-align: left;
+            border-bottom: 2px solid var(--border-color);
+            font-weight: 600;
+            color: var(--text-primary);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            white-space: nowrap;
+        }
+
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .sortable-header:hover {
+            background-color: var(--bg-primary);
+        }
+
+        .sortable-header.sorted {
+            background-color: var(--accent-primary);
+        }
+
+        .sortable-header.drag-over {
+            background-color: var(--accent-primary);
+            border-left: 3px solid var(--accent-primary);
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .column-name {
+            flex: 1;
+        }
+
+        .sort-indicator {
+            color: var(--accent-primary);
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .drag-handle {
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: grab;
+            opacity: 0.6;
+        }
+
+        .drag-handle:hover {
+            opacity: 1;
+        }
+
+        .sortable-header:active .drag-handle {
+            cursor: grabbing;
+        }
+
+        .results-table td {
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .results-table td:hover {
+            background-color: var(--bg-primary);
+        }
+
+        .results-table tr:hover {
+            background-color: var(--bg-primary);
+        }
+
+        /* 錯誤區域 */
+        .error-section {
+            flex: 1;
+            background: var(--bg-tertiary);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .error-header h4 {
+            margin: 0 0 15px 0;
+            color: var(--danger-color);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .error-content {
+            flex: 1;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            overflow: auto;
+        }
+
+        .error-content pre {
+            margin: 0;
+            color: var(--danger-color);
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        /* 載入區域 */
+        .loading-section {
+            flex: 1;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-content {
+            text-align: center;
+            color: var(--text-primary);
+        }
+
+        .loading-content h4 {
+            margin: 20px 0 0 0;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .spinner-large {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--border-color);
+            border-top: 4px solid var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        /* 歡迎區域 */
+        .welcome-section {
+            flex: 1;
+            background: var(--bg-tertiary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .welcome-content {
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .welcome-content h3 {
+            color: var(--text-primary);
+            margin-bottom: 15px;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .welcome-content p {
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .quick-tips {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: left;
+        }
+
+        .quick-tips h5 {
+            color: var(--accent-primary);
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .quick-tips ul {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--text-secondary);
+        }
+
+        .quick-tips li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        /* 按鈕樣式 */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .btn-xs {
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .btn-primary {
+            background-color: var(--accent-primary);
+            color: white;
+            border: 1px solid var(--accent-primary);
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background-color: var(--accent-secondary);
+        }
+
+        .btn-secondary {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background-color: var(--bg-primary);
+        }
+
+        .btn-success {
+            background-color: var(--success-color);
+            color: var(--bg-tertiary);
+            border: 1px solid var(--success-color);
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background-color: var(--success-secondary);
+        }
+
+        .btn-outline-primary {
+            background-color: transparent;
+            color: var(--accent-primary);
+            border: 1px solid var(--accent-primary);
+        }
+
+        .btn-outline-primary:hover:not(:disabled) {
+            background-color: var(--accent-primary);
+            color: white;
+        }
+
+        .btn-outline-danger {
+            background-color: transparent;
+            color: var(--danger-color);
+            border: 1px solid var(--danger-color);
+        }
+
+        .btn-outline-danger:hover:not(:disabled) {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .btn-outline-secondary {
+            background-color: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-outline-secondary:hover:not(:disabled) {
+            background-color: var(--bg-primary);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @@keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-top: 15px;
+            border: 1px solid transparent;
+        }
+
+        .alert-danger {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+            color: var(--danger-color);
+        }
+
+        /* 響應式調整 */
+        @@media (max-width: 768px) {
+            .main-workspace {
+                flex-direction: column;
+            }
+            
+            .sidebar {
+                width: 100%;
+                height: 300px;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .connection-status-bar {
+                flex-direction: column;
+                gap: 10px;
+                align-items: stretch;
+            }
+            
+            .status-actions {
+                justify-content: center;
+            }
+
+            .pagination-controls {
+                flex-direction: column;
+                gap: 10px;
+                align-items: stretch;
+            }
+
+            .pagination-buttons {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .page-numbers {
+                margin: 0;
+            }
+
+            .quick-jump {
+                justify-content: center;
+            }
+
+            .results-actions {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+            }
+
+            .pagination-info {
+                text-align: center;
+            }
+        }
+
+        /* 模態框樣式 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-dialog {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            min-width: 400px;
+            min-height: 300px;
+            max-width: 90vw;
+            max-height: 90vh;
+            width: 600px;
+            height: 500px;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-color);
+            resize: both; /* 允許雙向調整大小 */
+            overflow: hidden; /* 防止內容溢出 */
+            position: relative; /* 為了讓 resize handle 正確顯示 */
+        }
+
+        /* 自定義調整大小控制柄樣式 */
+        .modal-dialog::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(-45deg, 
+                transparent 0%, 
+                transparent 40%, 
+                var(--border-color) 40%, 
+                var(--border-color) 45%, 
+                transparent 45%, 
+                transparent 50%,
+                var(--border-color) 50%, 
+                var(--border-color) 55%, 
+                transparent 55%, 
+                transparent 60%,
+                var(--border-color) 60%, 
+                var(--border-color) 65%, 
+                transparent 65%);
+            cursor: nw-resize;
+            z-index: 1001;
+        }
+
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            background: var(--bg-secondary);
+            cursor: move; /* 讓標題欄可以拖拽移動 */
+            user-select: none;
+        }
+
+        .modal-title {
+            margin: 0;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+
+        .close-btn:hover {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        .modal-body {
+            padding: 20px;
+            flex: 1;
+            overflow: auto;
+            min-height: 0;
+        }
+
+        .modal-footer {
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+            background: var(--bg-secondary);
+        }
+
+        .modal-size-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .json-controls, .text-controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .json-content, .text-content {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 15px;
+            margin: 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            color: var(--text-primary);
+            overflow: auto;
+            height: 100%;
+            min-height: 200px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            resize: none; /* 內容區域不需要獨立調整大小 */
+        }
+
+        .json-content.formatted {
+            color: var(--accent-primary);
+        }
+
+        .json-content code, .text-content code {
+            color: inherit;
+            background: none;
+            padding: 0;
+        }
+
+        /* 響應式調整 */
+        @@media (max-width: 768px) {
+            .modal-dialog {
+                width: 95vw;
+                height: 80vh;
+                min-width: 300px;
+            }
+            
+            .modal-header {
+                padding: 12px 16px;
+            }
+            
+            .modal-title {
+                font-size: 14px;
+            }
+            
+            .close-btn {
+                width: 28px;
+                height: 28px;
+                font-size: 20px;
+            }
+            
+            .modal-body {
+                padding: 16px;
+            }
+            
+            .modal-footer {
+                padding: 12px 16px;
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .modal-size-info {
+                font-size: 10px;
+                text-align: center;
+                line-height: 1.3;
+            }
+            
+            .json-controls, .text-controls {
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+
+    @code {
+        private bool showConnectionPanel = false;
+        private string activeTab = "manual";
+        private List<ColumnInfo> sortedColumns = new();
+        private string? currentSortColumn;
+        private SortDirection currentSortDirection = SortDirection.None;
+        private string? draggedColumn;
+        private string databaseSearchText = "";
+        private string tableSearchText = "";
+        private bool sidebarCollapsed = false;
+        private bool databaseSectionCollapsed = false;
+        private bool tableSectionCollapsed = false;
+        private int jumpToPage = 1;
+        private bool showCellModal = false;
+        private string selectedColumnName = "";
+        private bool isJsonContent = false;
+        private bool showFormattedJson = false;
+        private string selectedCellValue = "";
+        private string formattedJsonContent = "";
+
+        public enum SortDirection
+        {
+            None,
+            Ascending,
+            Descending
+        }
+
+        public class ColumnInfo
+        {
+            public System.Data.DataColumn Column { get; set; } = null!;
+            public SortDirection SortDirection { get; set; } = SortDirection.None;
+            public int Order { get; set; }
+        }
+
+        protected override Task OnInitializedAsync()
+        {
+            // 訂閱 ViewModel 事件
+            if (ViewModel != null)
+            {
+                ViewModel.PropertyChanged += OnPropertyChanged;
+                ViewModel.ConnectionStateChanged += OnConnectionStateChanged;
+                ViewModel.QueryResultChanged += OnQueryResultChanged;
+                ViewModel.AffectedRowsChanged += OnAffectedRowsChanged;
+                ViewModel.DatabasesLoaded += OnDatabasesLoaded;
+                ViewModel.TablesLoaded += OnTablesLoaded;
+                
+                // 載入已儲存的連線
+                ViewModel.LoadSavedConnections();
+                
+                // 如果未連線，預設顯示連線面板
+                showConnectionPanel = !ViewModel.IsConnected;
+                
+                // 如果已經有查詢結果，初始化列
+                if (ViewModel.QueryResult != null)
+                {
+                    InitializeColumns();
+                }
+            }
+            return Task.CompletedTask;
+        }
+
+        private void SetActiveTab(string tab)
+        {
+            activeTab = tab;
+        }
+
+        private void ToggleConnectionPanel()
+        {
+            showConnectionPanel = !showConnectionPanel;
+        }
+
+        // 搜尋功能
+        private List<DatabaseInfo> GetFilteredDatabases()
+        {
+            if (string.IsNullOrWhiteSpace(databaseSearchText))
+                return ViewModel?.Databases ?? new List<DatabaseInfo>();
+
+            var searchPattern = databaseSearchText.Replace("*", ".*");
+            var regex = new System.Text.RegularExpressions.Regex(searchPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return ViewModel?.Databases.Where(db => regex.IsMatch(db.Name)).ToList() ?? new List<DatabaseInfo>();
+        }
+
+        private List<string> GetFilteredTables()
+        {
+            if (string.IsNullOrWhiteSpace(tableSearchText))
+                return ViewModel?.Tables ?? new List<string>();
+
+            var searchPattern = tableSearchText.Replace("*", ".*");
+            var regex = new System.Text.RegularExpressions.Regex(searchPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            return ViewModel?.Tables.Where(table => regex.IsMatch(table)).ToList() ?? new List<string>();
+        }
+
+        private void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            InvokeAsync(async () =>
+            {
+                // 檢查是否有錯誤訊息需要顯示
+                if (e.PropertyName == nameof(ViewModel.ErrorMessage) && !string.IsNullOrEmpty(ViewModel.ErrorMessage))
+                {
+                    await ToastService.ShowError(ViewModel.ErrorMessage);
+                }
+                StateHasChanged();
+            });
+        }
+
+        private void OnConnectionStateChanged(object? sender, EventArgs e)
+        {
+            InvokeAsync(async () =>
+            {
+                // 連線成功後自動隱藏連線面板
+                if (ViewModel?.IsConnected == true)
+                {
+                    showConnectionPanel = false;
+                    await ToastService.ShowSuccess("資料庫連線成功！");
+                }
+                StateHasChanged();
+            });
+        }
+
+        private void OnQueryResultChanged(object? sender, System.Data.DataTable e)
+        {
+            InvokeAsync(async () =>
+            {
+                InitializeColumns();
+                if (e != null && e.Rows.Count > 0)
+                {
+                    await ToastService.ShowSuccess($"查詢完成，共 {e.Rows.Count} 筆記錄");
+                }
+                StateHasChanged();
+            });
+        }
+
+        private void OnAffectedRowsChanged(object? sender, int e)
+        {
+            InvokeAsync(async () =>
+            {
+                if (e > 0)
+                {
+                    await ToastService.ShowInfo($"操作完成，影響 {e} 筆記錄");
+                }
+                StateHasChanged();
+            });
+        }
+
+        private void OnDatabasesLoaded(object? sender, List<DatabaseInfo> e)
+        {
+            InvokeAsync(StateHasChanged);
+        }
+
+        private void OnTablesLoaded(object? sender, List<string> e)
+        {
+            InvokeAsync(StateHasChanged);
+        }
+
+        private void SetSelectQuery(string tableName)
+        {
+            ViewModel?.SetSelectQuery(tableName);
+            ViewModel?.ExecuteQueryAsync();
+        }
+
+        private void InitializeColumns()
+        {
+            if (ViewModel?.QueryResult == null) 
+            {
+                sortedColumns.Clear();
+                return;
+            }
+
+            sortedColumns = ViewModel.QueryResult.Columns.Cast<System.Data.DataColumn>()
+                .Select((col, index) => new ColumnInfo 
+                { 
+                    Column = col, 
+                    SortDirection = SortDirection.None,
+                    Order = index 
+                })
+                .OrderBy(c => c.Order)
+                .ToList();
+
+            currentSortColumn = null;
+            currentSortDirection = SortDirection.None;
+        }
+
+        private bool ValidateColumns()
+        {
+            if (ViewModel?.QueryResult == null || !sortedColumns.Any())
+                return false;
+
+            // 檢查 sortedColumns 中的所有列是否都存在於當前的 QueryResult 中
+            var currentColumns = ViewModel.QueryResult.Columns.Cast<System.Data.DataColumn>()
+                .Select(c => c.ColumnName)
+                .ToHashSet();
+
+            bool isValid = sortedColumns.All(sc => currentColumns.Contains(sc.Column.ColumnName));
+            
+            // 如果驗證失敗，重新初始化列
+            if (!isValid)
+            {
+                InitializeColumns();
+                return sortedColumns.Any();
+            }
+
+            return true;
+        }
+
+        private string GetSafeCellValue(System.Data.DataRow row, string columnName)
+        {
+            try
+            {
+                if (row?.Table?.Columns?.Contains(columnName) == true)
+                {
+                    return row[columnName]?.ToString() ?? "NULL";
+                }
+                return "COLUMN_NOT_FOUND";
+            }
+            catch (Exception ex)
+            {
+                return $"ERROR: {ex.Message}";
+            }
+        }
+
+        private void ToggleSort(string columnName)
+        {
+            // 重置所有欄位的排序狀態
+            foreach (var col in sortedColumns)
+            {
+                if (col.Column.ColumnName != columnName)
+                    col.SortDirection = SortDirection.None;
+            }
+
+            var column = sortedColumns.FirstOrDefault(c => c.Column.ColumnName == columnName);
+            if (column == null) return;
+
+            if (currentSortColumn == columnName)
+            {
+                // 切換排序方向
+                currentSortDirection = currentSortDirection switch
+                {
+                    SortDirection.None => SortDirection.Ascending,
+                    SortDirection.Ascending => SortDirection.Descending,
+                    SortDirection.Descending => SortDirection.None,
+                    _ => SortDirection.Ascending
+                };
+            }
+            else
+            {
+                currentSortColumn = columnName;
+                currentSortDirection = SortDirection.Ascending;
+            }
+
+            column.SortDirection = currentSortDirection;
+        }
+
+        private IEnumerable<System.Data.DataRow> GetSortedRows()
+        {
+            if (ViewModel?.QueryResult == null) return Enumerable.Empty<System.Data.DataRow>();
+
+            var rows = ViewModel.QueryResult.Rows.Cast<System.Data.DataRow>();
+
+            if (currentSortDirection != SortDirection.None && !string.IsNullOrEmpty(currentSortColumn))
+            {
+                try
+                {
+                    rows = currentSortDirection == SortDirection.Ascending
+                        ? rows.OrderBy(row => row[currentSortColumn] ?? "")
+                        : rows.OrderByDescending(row => row[currentSortColumn] ?? "");
+                }
+                catch (Exception ex)
+                {
+                    // 如果排序失敗，記錄錯誤但回傳原始資料
+                    Console.WriteLine($"排序失敗: {ex.Message}");
+                    // 重置排序狀態
+                    currentSortDirection = SortDirection.None;
+                    currentSortColumn = null;
+                }
+            }
+
+            return rows;
+        }
+
+        private void ResetColumnOrder()
+        {
+            InitializeColumns();
+        }
+
+        // 拖拽事件處理
+        private void OnDragStart(DragEventArgs e, string columnName)
+        {
+            draggedColumn = columnName;
+            e.DataTransfer.EffectAllowed = "move";
+        }
+
+        private void OnDragOver(DragEventArgs e)
+        {
+            e.DataTransfer.DropEffect = "move";
+        }
+
+        private void OnDragEnter(DragEventArgs e)
+        {
+            // 拖拽進入
+        }
+
+        private void OnDragLeave(DragEventArgs e)
+        {
+            // 可以在這裡移除視覺提示
+        }
+
+        private void OnDrop(DragEventArgs e, string targetColumnName)
+        {
+            if (string.IsNullOrEmpty(draggedColumn) || draggedColumn == targetColumnName)
+                return;
+
+            var draggedIndex = sortedColumns.FindIndex(c => c.Column.ColumnName == draggedColumn);
+            var targetIndex = sortedColumns.FindIndex(c => c.Column.ColumnName == targetColumnName);
+
+            if (draggedIndex >= 0 && targetIndex >= 0)
+            {
+                var draggedItem = sortedColumns[draggedIndex];
+                sortedColumns.RemoveAt(draggedIndex);
+                sortedColumns.Insert(targetIndex, draggedItem);
+
+                // 更新順序
+                for (int i = 0; i < sortedColumns.Count; i++)
+                {
+                    sortedColumns[i].Order = i;
+                }
+
+                StateHasChanged();
+            }
+
+            draggedColumn = null;
+        }
+
+        private void HandleKeyDown(KeyboardEventArgs e)
+        {
+            if (e.Key == "Enter" && e.CtrlKey)
+            {
+                ViewModel?.ExecuteQueryAsync();
+            }
+        }
+
+        private void HandlePageJump()
+        {
+            if (int.TryParse(jumpToPage.ToString(), out var pageNumber))
+            {
+                ViewModel?.GoToPage(pageNumber);
+            }
+        }
+
+        private void ShowCellValue(string value, string columnName)
+        {
+            selectedColumnName = columnName;
+            selectedCellValue = value;
+            isJsonContent = IsJsonString(value);
+            showFormattedJson = false;
+            
+            if (isJsonContent)
+            {
+                try
+                {
+                    var jsonDocument = JsonDocument.Parse(value);
+                    formattedJsonContent = JsonSerializer.Serialize(jsonDocument, new JsonSerializerOptions 
+                    { 
+                        WriteIndented = true 
+                    });
+                }
+                catch
+                {
+                    formattedJsonContent = value;
+                }
+            }
+            
+            showCellModal = true;
+        }
+
+        private bool IsJsonString(string str)
+        {
+            if (string.IsNullOrWhiteSpace(str)) return false;
+            
+            str = str.Trim();
+            return (str.StartsWith("{") && str.EndsWith("}")) || 
+                   (str.StartsWith("[") && str.EndsWith("]"));
+        }
+
+        private void ToggleJsonFormat()
+        {
+            showFormattedJson = !showFormattedJson;
+        }
+
+        private string GetDisplayValue(string value)
+        {
+            if (string.IsNullOrEmpty(value) || value == "NULL") 
+                return value;
+                
+            // 限制顯示長度，避免表格過寬
+            if (value.Length > 50)
+            {
+                return value.Substring(0, 47) + "...";
+            }
+            return value;
+        }
+
+        private async Task CopyToClipboard()
+        {
+            try
+            {
+                string contentToCopy = "";
+                if (isJsonContent && showFormattedJson)
+                {
+                    contentToCopy = formattedJsonContent;
+                }
+                else
+                {
+                    contentToCopy = selectedCellValue;
+                }
+                
+                // 簡化的剪貼簿功能調用
+                var result = await JSRuntime.InvokeAsync<bool>("copyToClipboard", contentToCopy);
+                if (result)
+                {
+                    await ToastService.ShowSuccess("內容已複製到剪貼簿");
+                }
+                else
+                {
+                    await ToastService.ShowWarning("無法複製到剪貼簿，請手動選取內容複製");
+                }
+            }
+            catch (Exception ex)
+            {
+                // 如果剪貼簿功能失敗，顯示錯誤信息但不中斷程式
+                await ToastService.ShowWarning("無法複製到剪貼簿，請手動選取內容複製");
+                Console.WriteLine($"剪貼簿複製失敗: {ex.Message}");
+            }
+        }
+
+        private void CloseCellModal()
+        {
+            showCellModal = false;
+        }
+
+        public void Dispose()
+        {
+            // 取消訂閱事件
+            if (ViewModel != null)
+            {
+                ViewModel.PropertyChanged -= OnPropertyChanged;
+                ViewModel.ConnectionStateChanged -= OnConnectionStateChanged;
+                ViewModel.QueryResultChanged -= OnQueryResultChanged;
+                ViewModel.AffectedRowsChanged -= OnAffectedRowsChanged;
+                ViewModel.DatabasesLoaded -= OnDatabasesLoaded;
+                ViewModel.TablesLoaded -= OnTablesLoaded;
+            }
+        }
+    }
+}
+else
+{
+    <div class="error-container">
+        <h3>載入錯誤</h3>
+        <p>無法載入資料庫管理介面，請重新整理頁面。</p>
+        <button type="button" class="btn btn-primary" @onclick="() => Navigation.Refresh(true)">
+            重新整理
+        </button>
+    </div>
+} 

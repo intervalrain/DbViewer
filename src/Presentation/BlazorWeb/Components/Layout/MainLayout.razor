@@ -1,0 +1,554 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+@namespace Presentation.BlazorWeb.Components.Layout
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@inject Presentation.BlazorWeb.ViewModels.LoginViewModel LoginViewModel
+@inject Presentation.BlazorWeb.Services.IToastService ToastService
+@inject IJSRuntime JSRuntime
+
+<div class="app-container">
+    <!-- 頂部導航 -->
+    <header class="app-header">
+        <div class="header-content">
+            <div class="header-left">
+                <div class="app-logo">
+                    <span class="logo-icon">🗄️</span>
+                    <span class="logo-text">DbViewer</span>
+                </div>
+                <nav class="main-nav">
+                    <NavMenu />
+                </nav>
+            </div>
+            <div class="header-right">
+                <div class="user-menu">
+                    <button class="user-button" @onclick="ToggleUserMenu" title="用戶選單">
+                        <span class="user-avatar">👤</span>
+                    </button>
+                    
+                    <!-- 用戶彈出選單 -->
+                    <div class="user-dropdown @(isUserMenuOpen ? "show" : "")" @onclick:stopPropagation="true">
+                        <div class="dropdown-header">
+                            <div class="user-info">
+                                <div class="user-avatar-large">👤</div>
+                                <div class="user-details">
+                                    <div class="user-name">用戶</div>
+                                    <div class="user-role">管理員</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-body">
+                            <button class="dropdown-item" @onclick="HandleLogout">
+                                <span class="dropdown-icon">🚪</span>
+                                <span>登出</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區域 -->
+    <main class="app-main">
+        @Body
+    </main>
+
+    <!-- 錯誤快顯 -->
+    <div class="toast-container" id="toast-container">
+        <!-- Toast 訊息將通過 JavaScript 動態添加 -->
+    </div>
+    
+    <!-- 點擊外部關閉選單的遮罩 -->
+    @if (isUserMenuOpen)
+    {
+        <div class="dropdown-backdrop" @onclick="CloseUserMenu"></div>
+    }
+</div>
+
+<style>
+    :root {
+        /* Light Theme */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f8f9fa;
+        --bg-tertiary: #e9ecef;
+        --text-primary: #212529;
+        --text-secondary: #6c757d;
+        --text-muted: #adb5bd;
+        --border-color: #dee2e6;
+        --accent-primary: #0d6efd;
+        --accent-secondary: #6f42c1;
+        --success-color: #198754;
+        --warning-color: #fd7e14;
+        --danger-color: #dc3545;
+        --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.175);
+        --transition-fast: all 0.15s ease-in-out;
+        --transition-normal: all 0.3s ease-in-out;
+        --transition-slow: all 0.5s ease-in-out;
+    }
+
+    * {
+        box-sizing: border-box;
+    }
+
+    .app-container {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        transition: var(--transition-normal);
+    }
+
+    /* 頂部導航 */
+    .app-header {
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+        z-index: 1000;
+        transition: var(--transition-normal);
+    }
+
+    .header-content {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 1.5rem;
+        height: 60px;
+        max-width: 100%;
+    }
+
+    .header-left {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+    }
+
+    .app-logo {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.25rem;
+        color: var(--accent-primary);
+        text-decoration: none;
+        transition: var(--transition-fast);
+    }
+
+    .app-logo:hover {
+        transform: scale(1.05);
+    }
+
+    .logo-icon {
+        font-size: 1.5rem;
+        animation: pulse 2s infinite;
+    }
+
+    @@keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+    }
+
+    .main-nav {
+        display: flex;
+        align-items: center;
+    }
+
+    .header-right {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    /* 用戶選單樣式 */
+    .user-menu {
+        position: relative;
+    }
+
+    .user-button {
+        background: none;
+        border: 1px solid var(--border-color);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: var(--transition-fast);
+        color: var(--text-primary);
+    }
+
+    .user-button:hover {
+        background: var(--bg-tertiary);
+        box-shadow: var(--shadow-sm);
+        transform: scale(1.05);
+    }
+
+    .user-avatar {
+        font-size: 1.2rem;
+        color: var(--accent-primary);
+    }
+
+    /* 用戶下拉選單 */
+    .user-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: var(--shadow-lg);
+        min-width: 240px;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-10px);
+        transition: var(--transition-fast);
+        z-index: 1001;
+    }
+
+    .user-dropdown.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    .dropdown-header {
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .user-info {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .user-avatar-large {
+        width: 48px;
+        height: 48px;
+        background: var(--bg-tertiary);
+        border: 2px solid var(--accent-primary);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: var(--accent-primary);
+    }
+
+    .user-details {
+        flex: 1;
+    }
+
+    .user-name {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .user-role {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+
+    .dropdown-divider {
+        height: 1px;
+        background: var(--border-color);
+        margin: 0;
+    }
+
+    .dropdown-body {
+        padding: 0.5rem 0;
+    }
+
+    .dropdown-item {
+        width: 100%;
+        background: none;
+        border: none;
+        padding: 0.75rem 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        cursor: pointer;
+        transition: var(--transition-fast);
+        color: var(--text-primary);
+        text-align: left;
+    }
+
+    .dropdown-item:hover {
+        background: var(--bg-secondary);
+    }
+
+    .dropdown-icon {
+        font-size: 1.125rem;
+        width: 20px;
+        text-align: center;
+    }
+
+    /* 背景遮罩 */
+    .dropdown-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 1000;
+        background: transparent;
+    }
+
+    /* 主要內容區域 */
+    .app-main {
+        flex: 1;
+        overflow: hidden;
+        background: var(--bg-primary);
+    }
+
+    /* Toast 快顯樣式 */
+    .toast-container {
+        position: fixed;
+        bottom: 2rem;
+        right: 2rem;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        max-width: 400px;
+        pointer-events: none;
+    }
+
+    .toast {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        box-shadow: var(--shadow-lg);
+        overflow: hidden;
+        transform: translateX(100%);
+        opacity: 0;
+        transition: var(--transition-normal);
+        pointer-events: auto;
+        position: relative;
+    }
+
+    .toast.show {
+        transform: translateX(0);
+        opacity: 1;
+        animation: slideInRight 0.3s ease-out forwards;
+    }
+
+    .toast.error {
+        border-left: 4px solid var(--danger-color);
+    }
+
+    .toast.success {
+        border-left: 4px solid var(--success-color);
+    }
+
+    .toast.warning {
+        border-left: 4px solid var(--warning-color);
+    }
+
+    .toast.info {
+        border-left: 4px solid var(--accent-primary);
+    }
+
+    @@keyframes slideInRight {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    .toast-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .toast-icon {
+        font-size: 1.25rem;
+    }
+
+    .toast-title {
+        flex: 1;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .toast-close {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: var(--transition-fast);
+    }
+
+    .toast-close:hover {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+
+    .toast-body {
+        padding: 1rem;
+        color: var(--text-primary);
+        line-height: 1.5;
+    }
+
+    .toast-progress {
+        height: 3px;
+        background: var(--bg-tertiary);
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        background: var(--accent-primary);
+        width: 100%;
+        animation: shrink linear forwards;
+        transform-origin: left;
+    }
+
+    .toast.error .progress-bar {
+        background: var(--danger-color);
+    }
+
+    .toast.success .progress-bar {
+        background: var(--success-color);
+    }
+
+    .toast.warning .progress-bar {
+        background: var(--warning-color);
+    }
+
+    @@keyframes shrink {
+        from {
+            transform: scaleX(1);
+        }
+        to {
+            transform: scaleX(0);
+        }
+    }
+
+    /* 響應式設計 */
+    @@media (max-width: 768px) {
+        .header-content {
+            padding: 0 1rem;
+        }
+
+        .header-left {
+            gap: 1rem;
+        }
+
+        .main-nav {
+            display: none;
+        }
+
+        .logo-text {
+            display: none;
+        }
+
+        .toast-container {
+            bottom: 1rem;
+            right: 1rem;
+            left: 1rem;
+            max-width: none;
+        }
+
+        .user-dropdown {
+            min-width: 200px;
+        }
+    }
+</style>
+
+@code {
+    private bool isUserMenuOpen = false;
+
+    private void ToggleUserMenu()
+    {
+        isUserMenuOpen = !isUserMenuOpen;
+    }
+
+    private void CloseUserMenu()
+    {
+        isUserMenuOpen = false;
+    }
+
+    private async Task HandleLogout()
+    {
+        // 先關閉選單
+        CloseUserMenu();
+        
+        try
+        {
+            Console.WriteLine("MainLayout.HandleLogout 開始...");
+            
+            // 調用 LoginViewModel 的 LogoutAsync 來清除所有狀態
+            await LoginViewModel.LogoutAsync();
+            Console.WriteLine("LoginViewModel.LogoutAsync 完成");
+            
+            // 等待一下確保 Cookie 操作完成
+            await Task.Delay(100);
+            
+            // 清除所有可能的 Cookie（包括不同路徑和域名）
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                console.log('開始清除所有 auth_token cookies...');
+                // 清除當前路徑的 cookie
+                document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                // 清除根路徑的 cookie
+                document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=' + window.location.hostname + ';';
+                // 清除所有可能的 cookie
+                document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC;';
+                console.log('所有 auth_token cookies 已清除');
+                
+                // 驗證 Cookie 是否真的被清除
+                const remainingToken = getCookie('auth_token');
+                console.log('清除後檢查 Cookie:', remainingToken ? '仍然存在' : '已清除');
+            ");
+            
+            // 清除 localStorage 和 sessionStorage（以防萬一）
+            await JSRuntime.InvokeVoidAsync("eval", @"
+                localStorage.removeItem('auth_token');
+                sessionStorage.removeItem('auth_token');
+                console.log('localStorage 和 sessionStorage 已清除');
+            ");
+            
+            // 再次等待確保所有清除操作完成
+            await Task.Delay(200);
+            
+            // 顯示 Toast 訊息
+            await JSRuntime.InvokeVoidAsync("eval", "if(window.showToast) { window.showToast('已成功登出', 'success', 2000); }");
+            
+            Console.WriteLine("登出完成，準備導航到登入頁面");
+            
+            // 等待 Toast 顯示
+            await Task.Delay(1500);
+            
+            // 強制重新載入到登入頁面（這會清除所有 Blazor 狀態）
+            await JSRuntime.InvokeVoidAsync("eval", "window.location.replace('/login');");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"登出錯誤: {ex.Message}");
+            // 即使發生錯誤也要強制導航到登入頁面
+            await JSRuntime.InvokeVoidAsync("eval", "window.location.replace('/login');");
+        }
+    }
+}

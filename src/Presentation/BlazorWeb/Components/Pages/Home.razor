@@ -1,0 +1,238 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject IAuthService AuthService
+@inject NavigationManager Navigation
+
+<PageTitle>首頁 - DbViewer</PageTitle>
+
+<div class="home-container">
+    <div class="welcome-section">
+        <h1>歡迎使用 DbViewer</h1>
+        <p class="lead">強大的資料庫管理工具</p>
+        
+        @if (AuthService?.IsAuthenticated == true)
+        {
+            <div class="user-info">
+                <p>歡迎回來，<strong>@(AuthService.CurrentUser ?? "使用者")</strong>！</p>
+                <p>您的角色：<span class="badge bg-primary">@(AuthService.CurrentRole ?? "未知")</span></p>
+            </div>
+        }
+    </div>
+
+    <div class="features-section">
+        <div class="row">
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        🗄️
+                    </div>
+                    <h3>多資料庫支援</h3>
+                    <p>支援 MySQL、PostgreSQL、SQL Server 等多種資料庫</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        🔍
+                    </div>
+                    <h3>SQL 查詢</h3>
+                    <p>強大的 SQL 查詢編輯器，支援語法高亮和自動完成</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        🛡️
+                    </div>
+                    <h3>安全認證</h3>
+                    <p>基於 JWT 的安全認證機制，保護您的資料安全</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="actions-section">
+        <div class="d-flex gap-3 justify-content-center">
+            <a href="/database" class="btn btn-primary btn-lg">
+                🗄️ 開始使用資料庫
+            </a>
+            <button type="button" class="btn btn-outline-secondary btn-lg" @onclick="Logout">
+                🚪 登出
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .home-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 40px 20px;
+    }
+
+    .welcome-section {
+        text-align: center;
+        margin-bottom: 60px;
+    }
+
+    .welcome-section h1 {
+        font-size: 3rem;
+        font-weight: 700;
+        color: #333;
+        margin-bottom: 20px;
+    }
+
+    .lead {
+        font-size: 1.25rem;
+        color: #666;
+        margin-bottom: 30px;
+    }
+
+    .user-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        display: inline-block;
+        margin-bottom: 20px;
+    }
+
+    .user-info p {
+        margin: 5px 0;
+    }
+
+    .badge {
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.875rem;
+    }
+
+    .bg-primary {
+        background-color: rgba(255, 255, 255, 0.2) !important;
+    }
+
+    .features-section {
+        margin-bottom: 60px;
+    }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin: -15px;
+    }
+
+    .col-md-4 {
+        flex: 0 0 33.333333%;
+        max-width: 33.333333%;
+        padding: 15px;
+    }
+
+    @@media (max-width: 768px) {
+        .col-md-4 {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+    }
+
+    .feature-card {
+        background: white;
+        border-radius: 10px;
+        padding: 30px 20px;
+        text-align: center;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+        height: 100%;
+    }
+
+    .feature-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    }
+
+    .feature-icon {
+        font-size: 3rem;
+        color: #667eea;
+        margin-bottom: 20px;
+    }
+
+    .feature-card h3 {
+        color: #333;
+        margin-bottom: 15px;
+        font-weight: 600;
+    }
+
+    .feature-card p {
+        color: #666;
+        line-height: 1.6;
+    }
+
+    .actions-section {
+        text-align: center;
+    }
+
+    .btn {
+        padding: 12px 30px;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: 500;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+
+    .btn-lg {
+        padding: 15px 40px;
+        font-size: 1.2rem;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        color: white;
+        text-decoration: none;
+    }
+
+    .btn-outline-secondary {
+        background-color: transparent;
+        color: #6c757d;
+        border: 2px solid #6c757d;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        color: white;
+        transform: translateY(-2px);
+    }
+
+    .d-flex {
+        display: flex;
+    }
+
+    .gap-3 {
+        gap: 1rem;
+    }
+
+    .justify-content-center {
+        justify-content: center;
+    }
+
+    .me-2 {
+        margin-right: 0.5rem;
+    }
+</style>
+
+@code {
+    private async Task Logout()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("/login", true);
+    }
+}

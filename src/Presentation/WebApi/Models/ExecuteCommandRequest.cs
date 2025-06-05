@@ -1,0 +1,1 @@
+public record ExecuteCommandRequest(string Sql, int TimeoutSeconds = 30);
