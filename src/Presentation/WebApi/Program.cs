@@ -1,6 +1,6 @@
 using Common.Modularity;
 
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 
 namespace Presentation.WebApi;
 
@@ -25,19 +25,10 @@ public class Program
                     Scheme = "Bearer"
                 });
 
-                c.AddSecurityRequirement(new OpenApiSecurityRequirement
+                c.AddSecurityRequirement(_ =>
                 {
-                    {
-                        new OpenApiSecurityScheme
-                        {
-                            Reference = new OpenApiReference
-                            {
-                                Type = ReferenceType.SecurityScheme,
-                                Id = "Bearer"
-                            }
-                        },
-                        Array.Empty<string>()
-                    }
+                    var schemeRef = new OpenApiSecuritySchemeReference("Bearer");
+                    return new OpenApiSecurityRequirement { [schemeRef] = [] };
                 });
             });
 
